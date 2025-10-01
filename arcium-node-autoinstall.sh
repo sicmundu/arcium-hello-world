@@ -13,7 +13,7 @@
 # - Deploys and starts the node
 # - Verifies node operation
 #
-# Usage: curl -sSL https://your-url/arcium-node-autoinstall.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/sicmundu/arcium-hello-world/refs/heads/main/arcium-node-autoinstall.sh | bash
 ################################################################################
 
 set -e  # Exit on any error
@@ -448,6 +448,12 @@ EOF
 deploy_node() {
     print_section "Deploying ARX Node"
     
+    # Create log directory
+    print_info "Creating log directory..."
+    mkdir -p "$WORKSPACE_DIR/arx-node-logs"
+    touch "$WORKSPACE_DIR/arx-node-logs/arx.log"
+    print_success "Log directory created"
+    
     # Check if container already exists
     if node_container_exists; then
         if is_node_running; then
@@ -466,11 +472,17 @@ deploy_node() {
     print_info "Starting node container..."
     docker run -d \
         --name "$DOCKER_CONTAINER_NAME" \
-        --restart unless-stopped \
-        -v "$IDENTITY_KEYPAIR:/app/identity.pem:ro" \
-        -v "$NODE_KEYPAIR:/app/node-keypair.json:ro" \
-        -v "$CALLBACK_KEYPAIR:/app/callback-kp.json:ro" \
-        -v "$NODE_CONFIG:/app/node_config.toml:ro" \
+        -e NODE_IDENTITY_FILE=/usr/arx-node/node-keys/node_identity.pem \
+        -e NODE_KEYPAIR_FILE=/usr/arx-node/node-keys/node_keypair.json \
+        -e OPERATOR_KEYPAIR_FILE=/usr/arx-node/node-keys/operator_keypair.json \
+        -e CALLBACK_AUTHORITY_KEYPAIR_FILE=/usr/arx-node/node-keys/callback_authority_keypair.json \
+        -e NODE_CONFIG_PATH=/usr/arx-node/arx/node_config.toml \
+        -v "$NODE_CONFIG:/usr/arx-node/arx/node_config.toml" \
+        -v "$NODE_KEYPAIR:/usr/arx-node/node-keys/node_keypair.json:ro" \
+        -v "$NODE_KEYPAIR:/usr/arx-node/node-keys/operator_keypair.json:ro" \
+        -v "$CALLBACK_KEYPAIR:/usr/arx-node/node-keys/callback_authority_keypair.json:ro" \
+        -v "$IDENTITY_KEYPAIR:/usr/arx-node/node-keys/node_identity.pem:ro" \
+        -v "$WORKSPACE_DIR/arx-node-logs:/usr/arx-node/logs" \
         -p 8080:8080 \
         arcium/arx-node:latest
     
