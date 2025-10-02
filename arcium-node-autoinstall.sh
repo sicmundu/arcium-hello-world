@@ -118,9 +118,13 @@ install_rust() {
     print_section "Installing Rust"
     
     if command_exists rustc && command_exists cargo; then
-        RUST_VERSION=$(rustc --version | awk '{print $2}')
-        print_success "Rust is already installed: v$RUST_VERSION"
-        return 0
+        RUST_VERSION=$(rustc --version 2>/dev/null | awk '{print $2}')
+        CARGO_VERSION=$(cargo --version 2>/dev/null | awk '{print $2}')
+        if [ -n "$RUST_VERSION" ] && [ -n "$CARGO_VERSION" ]; then
+            print_success "Rust is already installed: v$RUST_VERSION"
+            print_success "Cargo is already installed: v$CARGO_VERSION"
+            return 0
+        fi
     fi
     
     print_info "Installing Rust via rustup..."
@@ -129,8 +133,9 @@ install_rust() {
     # Source cargo env
     source "$HOME/.cargo/env"
     
-    if command_exists rustc; then
+    if command_exists rustc && command_exists cargo; then
         print_success "Rust installed successfully: $(rustc --version)"
+        print_success "Cargo installed successfully: $(cargo --version)"
     else
         print_error "Rust installation failed"
         exit 1
@@ -153,7 +158,7 @@ install_solana() {
     fi
     
     print_info "Installing Solana CLI..."
-    sh -c "$(curl -sSfL https://release.solana.com/stable/install)"
+    curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash
     
     # Add to PATH
     export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
@@ -175,35 +180,39 @@ install_solana() {
 install_docker() {
     print_section "Installing Docker"
     
-    if is_docker_running; then
-        DOCKER_VERSION=$(docker --version | awk '{print $3}' | tr -d ',')
-        print_success "Docker is already installed and running: v$DOCKER_VERSION"
-        return 0
-    fi
-    
     if command_exists docker; then
-        print_warning "Docker is installed but not running"
-        print_info "Attempting to start Docker..."
-        
-        if [[ "$OS" == "macos" ]]; then
-            open -a Docker
-            print_info "Waiting for Docker to start..."
-            sleep 10
+        DOCKER_VERSION=$(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',')
+        if [ -n "$DOCKER_VERSION" ]; then
+            print_success "Docker is already installed: v$DOCKER_VERSION"
             
             if is_docker_running; then
-                print_success "Docker started successfully"
+                print_success "Docker is running"
                 return 0
-            fi
-        elif [[ "$OS" == "linux" ]]; then
-            sudo systemctl start docker
-            if is_docker_running; then
-                print_success "Docker started successfully"
-                return 0
+            else
+                print_warning "Docker is installed but not running"
+                print_info "Attempting to start Docker..."
+                
+                if [[ "$OS" == "macos" ]]; then
+                    open -a Docker
+                    print_info "Waiting for Docker to start..."
+                    sleep 10
+                    
+                    if is_docker_running; then
+                        print_success "Docker started successfully"
+                        return 0
+                    fi
+                elif [[ "$OS" == "linux" ]]; then
+                    sudo systemctl start docker
+                    if is_docker_running; then
+                        print_success "Docker started successfully"
+                        return 0
+                    fi
+                fi
+                
+                print_error "Could not start Docker. Please start it manually and run this script again."
+                exit 1
             fi
         fi
-        
-        print_error "Could not start Docker. Please start it manually and run this script again."
-        exit 1
     fi
     
     print_info "Installing Docker..."
@@ -242,8 +251,10 @@ install_arcium() {
     
     if command_exists arcium; then
         ARCIUM_VERSION=$(arcium --version 2>/dev/null | head -n1 || echo "unknown")
-        print_success "Arcium CLI is already installed: $ARCIUM_VERSION"
-        return 0
+        if [ "$ARCIUM_VERSION" != "unknown" ] && [ -n "$ARCIUM_VERSION" ]; then
+            print_success "Arcium CLI is already installed: $ARCIUM_VERSION"
+            return 0
+        fi
     fi
     
     print_info "Installing Arcium CLI via arcium-install..."
@@ -261,7 +272,8 @@ install_arcium() {
     export PATH="$HOME/.arcium/bin:$PATH"
     
     if command_exists arcium; then
-        print_success "Arcium CLI installed successfully"
+        ARCIUM_VERSION=$(arcium --version 2>/dev/null | head -n1 || echo "unknown")
+        print_success "Arcium CLI installed successfully: $ARCIUM_VERSION"
     else
         print_error "Arcium CLI installation failed"
         exit 1
@@ -571,6 +583,24 @@ main() {
     install_solana
     install_docker
     install_arcium
+    
+    # Check for bc calculator
+    if ! command_exists bc; then
+        print_section "Installing bc calculator"
+        if [[ "$OS" == "linux" ]]; then
+            sudo apt-get update && sudo apt-get install -y bc
+        elif [[ "$OS" == "macos" ]]; then
+            if command_exists brew; then
+                brew install bc
+            else
+                print_error "Please install bc calculator manually: brew install bc"
+                exit 1
+            fi
+        fi
+        print_success "bc calculator installed"
+    else
+        print_success "bc calculator is already installed"
+    fi
     
     # Setup workspace
     setup_workspace
