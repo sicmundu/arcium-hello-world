@@ -214,6 +214,8 @@ check_system_requirements() {
 # Save progress
 save_progress() {
     local step="$1"
+    # Ensure workspace directory exists
+    mkdir -p "$WORKSPACE_DIR"
     echo "$step" > "$PROGRESS_FILE"
     print_info "Progress saved: $step"
 }
@@ -235,6 +237,8 @@ clear_progress() {
 
 # Save RPC configuration
 save_rpc_config() {
+    # Ensure workspace directory exists
+    mkdir -p "$WORKSPACE_DIR"
     echo "$RPC_URL" > "$RPC_CONFIG_FILE"
     print_info "RPC configuration saved: $RPC_URL"
 }
@@ -258,6 +262,8 @@ clear_rpc_config() {
 
 # Save node offset
 save_node_offset() {
+    # Ensure workspace directory exists
+    mkdir -p "$WORKSPACE_DIR"
     echo "$NODE_OFFSET" > "$OFFSET_FILE"
     print_info "Node offset saved: $NODE_OFFSET"
 }
