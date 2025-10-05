@@ -96,13 +96,14 @@ show_progress() {
     local filled=$((percent / 2))
     local empty=$((50 - filled))
     
-    printf "\r${CYAN}🔄 $desc: ["
-    printf "%${filled}s" | tr ' ' '█'
-    printf "%${empty}s" | tr ' ' '░'
+    # Clear line and show progress
+    printf "\r\033[K${CYAN}🔄 $desc: ["
+    printf "%${filled}s" | tr ' ' '='
+    printf "%${empty}s" | tr ' ' '-'
     printf "] %d%% (%d/%d)${NC}" "$percent" "$current" "$total"
     
     if [ "$current" -eq "$total" ]; then
-        echo
+        printf "\n"
     fi
 }
 
@@ -281,7 +282,7 @@ clear_node_offset() {
 # Show help
 show_help() {
     echo -e "${CYAN}Arcium Node Management Script v2.0.0${NC}\n"
-    echo -e "${YELLOW}Usage:${NC} $0 [COMMAND] [OPTIONS]\n"
+    echo -e "${YELLOW}Usage:${NC} bash <(curl -s https://raw.githubusercontent.com/sicmundu/arcium-hello-world/refs/heads/main/arcium-node-autoinstall.sh) [COMMAND]\n"
     echo -e "${YELLOW}Commands:${NC}"
     echo -e "  ${GREEN}install${NC}     Install and setup a new Arcium node"
     echo -e "  ${GREEN}start${NC}       Start an existing node"
@@ -293,12 +294,12 @@ show_help() {
     echo -e "  ${GREEN}logs${NC}        Show node logs"
     echo -e "  ${GREEN}help${NC}        Show this help message\n"
     echo -e "${YELLOW}Examples:${NC}"
-    echo -e "  $0 install          # Install new node"
-    echo -e "  $0 start            # Start existing node"
-    echo -e "  $0 status           # Check node status"
-    echo -e "  $0 logs             # View node logs"
-    echo -e "  $0 info             # Show node information"
-    echo -e "  $0 active           # Check if node is active"
+    echo -e "  bash <(curl -s https://raw.githubusercontent.com/sicmundu/arcium-hello-world/refs/heads/main/arcium-node-autoinstall.sh) install"
+    echo -e "  bash <(curl -s https://raw.githubusercontent.com/sicmundu/arcium-hello-world/refs/heads/main/arcium-node-autoinstall.sh) start"
+    echo -e "  bash <(curl -s https://raw.githubusercontent.com/sicmundu/arcium-hello-world/refs/heads/main/arcium-node-autoinstall.sh) status"
+    echo -e "  bash <(curl -s https://raw.githubusercontent.com/sicmundu/arcium-hello-world/refs/heads/main/arcium-node-autoinstall.sh) logs"
+    echo -e "  bash <(curl -s https://raw.githubusercontent.com/sicmundu/arcium-hello-world/refs/heads/main/arcium-node-autoinstall.sh) info"
+    echo -e "  bash <(curl -s https://raw.githubusercontent.com/sicmundu/arcium-hello-world/refs/heads/main/arcium-node-autoinstall.sh) active"
 }
 
 # Check if node is installed
@@ -1100,7 +1101,7 @@ print_summary() {
 
 # Handle command line arguments
 handle_arguments() {
-    case "${1:-install}" in
+    case "${1:-help}" in
         "install")
             main_install
             ;;
