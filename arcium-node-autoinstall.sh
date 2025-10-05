@@ -37,6 +37,7 @@ DEFAULT_RPC_URL="https://api.devnet.solana.com"
 RPC_URL=""
 PROGRESS_FILE="$WORKSPACE_DIR/.setup_progress"
 RPC_CONFIG_FILE="$WORKSPACE_DIR/.rpc_config"
+OFFSET_FILE="$WORKSPACE_DIR/.node_offset"
 
 ################################################################################
 # Utility Functions
@@ -47,14 +48,9 @@ print_header() {
     echo -e "${CYAN}"
     echo "╔══════════════════════════════════════════════════════════════════════════════════════╗"
     echo "║                                                                                      ║"
-    echo "║    █████╗ ██████╗  ██████╗██╗██╗   ██╗███╗   ███╗    ███╗   ██╗ ██████╗ ██████╗ ███████╗    ║"
-    echo "║   ██╔══██╗██╔══██╗██╔════╝██║██║   ██║████╗ ████║    ███║   ██║██╔═══██╗██╔══██╗██╔════╝    ║"
-    echo "║   ███████║██████╔╝██║     ██║██║   ██║██╔████╔██║    ███║   ██║██║   ██║██║  ██║█████╗      ║"
-    echo "║   ██╔══██║██╔══██╗██║     ██║██║   ██║██║╚██╔╝██║    ╚██╗ ██╔╝██║   ██║██║  ██║██╔══╝      ║"
-    echo "║   ██║  ██║██║  ██║╚██████╗██║╚██████╔╝██║ ╚═╝ ██║     ╚████╔╝ ╚██████╔╝██████╔╝███████╗    ║"
-    echo "║   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝ ╚═════╝ ╚═╝     ╚═╝      ╚═══╝   ╚═════╝ ╚═════╝ ╚══════╝    ║"
+    echo "║                    🚀 Arcium Testnet Node Setup v2.0.0 🚀                           ║"
     echo "║                                                                                      ║"
-    echo "║                    🚀 Automatic Testnet Node Setup v2.0.0 🚀                        ║"
+    echo "║              Automatic Installation & Configuration Script                          ║"
     echo "║                                                                                      ║"
     echo "╚══════════════════════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
@@ -257,6 +253,225 @@ load_rpc_config() {
 clear_rpc_config() {
     rm -f "$RPC_CONFIG_FILE"
     print_info "RPC configuration cleared"
+}
+
+# Save node offset
+save_node_offset() {
+    echo "$NODE_OFFSET" > "$OFFSET_FILE"
+    print_info "Node offset saved: $NODE_OFFSET"
+}
+
+# Load node offset
+load_node_offset() {
+    if [ -f "$OFFSET_FILE" ]; then
+        NODE_OFFSET=$(cat "$OFFSET_FILE")
+        print_info "Loaded node offset: $NODE_OFFSET"
+    else
+        print_warning "No saved node offset found"
+        return 1
+    fi
+}
+
+# Clear node offset
+clear_node_offset() {
+    rm -f "$OFFSET_FILE"
+    print_info "Node offset cleared"
+}
+
+# Show help
+show_help() {
+    echo -e "${CYAN}Arcium Node Management Script v2.0.0${NC}\n"
+    echo -e "${YELLOW}Usage:${NC} $0 [COMMAND] [OPTIONS]\n"
+    echo -e "${YELLOW}Commands:${NC}"
+    echo -e "  ${GREEN}install${NC}     Install and setup a new Arcium node"
+    echo -e "  ${GREEN}start${NC}       Start an existing node"
+    echo -e "  ${GREEN}stop${NC}        Stop the running node"
+    echo -e "  ${GREEN}restart${NC}     Restart the node"
+    echo -e "  ${GREEN}status${NC}      Check node status"
+    echo -e "  ${GREEN}info${NC}        Show node information"
+    echo -e "  ${GREEN}active${NC}      Check if node is active on network"
+    echo -e "  ${GREEN}logs${NC}        Show node logs"
+    echo -e "  ${GREEN}help${NC}        Show this help message\n"
+    echo -e "${YELLOW}Examples:${NC}"
+    echo -e "  $0 install          # Install new node"
+    echo -e "  $0 start            # Start existing node"
+    echo -e "  $0 status           # Check node status"
+    echo -e "  $0 logs             # View node logs"
+    echo -e "  $0 info             # Show node information"
+    echo -e "  $0 active           # Check if node is active"
+}
+
+# Check if node is installed
+is_node_installed() {
+    [ -f "$NODE_CONFIG" ] && [ -f "$NODE_KEYPAIR" ] && [ -f "$CALLBACK_KEYPAIR" ] && [ -f "$IDENTITY_KEYPAIR" ]
+}
+
+# Start node
+start_node() {
+    print_section "Starting Arcium Node"
+    
+    if ! is_node_installed; then
+        print_error "Node is not installed. Run '$0 install' first."
+        exit 1
+    fi
+    
+    if is_node_running; then
+        print_warning "Node is already running"
+        return 0
+    fi
+    
+    print_info "Starting node container..."
+    docker start "$DOCKER_CONTAINER_NAME"
+    
+    if is_node_running; then
+        print_success "Node started successfully"
+    else
+        print_error "Failed to start node"
+        exit 1
+    fi
+}
+
+# Stop node
+stop_node() {
+    print_section "Stopping Arcium Node"
+    
+    if ! is_node_running; then
+        print_warning "Node is not running"
+        return 0
+    fi
+    
+    print_info "Stopping node container..."
+    docker stop "$DOCKER_CONTAINER_NAME"
+    
+    if ! is_node_running; then
+        print_success "Node stopped successfully"
+    else
+        print_error "Failed to stop node"
+        exit 1
+    fi
+}
+
+# Restart node
+restart_node() {
+    print_section "Restarting Arcium Node"
+    
+    if ! is_node_installed; then
+        print_error "Node is not installed. Run '$0 install' first."
+        exit 1
+    fi
+    
+    print_info "Restarting node container..."
+    docker restart "$DOCKER_CONTAINER_NAME"
+    
+    if is_node_running; then
+        print_success "Node restarted successfully"
+    else
+        print_error "Failed to restart node"
+        exit 1
+    fi
+}
+
+# Show node status
+show_node_status() {
+    print_section "Node Status"
+    
+    if ! is_node_installed; then
+        print_error "Node is not installed. Run '$0 install' first."
+        exit 1
+    fi
+    
+    if is_node_running; then
+        print_success "✅ Node is running"
+        print_info "Container: $DOCKER_CONTAINER_NAME"
+        print_info "Status: $(docker ps --format 'table {{.Status}}' --filter name=$DOCKER_CONTAINER_NAME | tail -n +2)"
+    else
+        print_warning "⚠️  Node is not running"
+    fi
+    
+    # Load saved offset
+    if load_node_offset; then
+        print_info "Node offset: $NODE_OFFSET"
+    fi
+}
+
+# Show node info
+show_node_info() {
+    print_section "Node Information"
+    
+    if ! is_node_installed; then
+        print_error "Node is not installed. Run '$0 install' first."
+        exit 1
+    fi
+    
+    # Load configurations
+    load_rpc_config
+    load_node_offset
+    
+    print_info "Node Details:"
+    print_info "  📁 Workspace: $WORKSPACE_DIR"
+    print_info "  🔑 Node Pubkey: $(solana address --keypair-path "$NODE_KEYPAIR")"
+    print_info "  🔢 Node Offset: $NODE_OFFSET"
+    print_info "  🌐 Public IP: $PUBLIC_IP"
+    print_info "  🔗 RPC Endpoint: $RPC_URL"
+    print_info "  📊 Container: $DOCKER_CONTAINER_NAME"
+    
+    if is_node_running; then
+        print_success "✅ Node is running"
+    else
+        print_warning "⚠️  Node is not running"
+    fi
+}
+
+# Check if node is active
+check_node_active() {
+    print_section "Checking Node Activity"
+    
+    if ! is_node_installed; then
+        print_error "Node is not installed. Run '$0 install' first."
+        exit 1
+    fi
+    
+    if ! load_node_offset; then
+        print_error "No node offset found. Run '$0 install' first."
+        exit 1
+    fi
+    
+    load_rpc_config
+    
+    print_info "Checking if node is active on network..."
+    print_info "Node offset: $NODE_OFFSET"
+    print_info "RPC URL: $RPC_URL"
+    
+    if arcium arx-active "$NODE_OFFSET" --rpc-url "$RPC_URL"; then
+        print_success "✅ Node is active on the network"
+    else
+        print_warning "⚠️  Node is not active on the network"
+    fi
+}
+
+# Show node logs
+show_node_logs() {
+    print_section "Node Logs"
+    
+    if ! is_node_installed; then
+        print_error "Node is not installed. Run '$0 install' first."
+        exit 1
+    fi
+    
+    if ! is_node_running; then
+        print_warning "Node is not running. Starting node first..."
+        start_node
+    fi
+    
+    print_info "Showing node logs (Press Ctrl+C to exit)..."
+    echo
+    
+    # Show logs from file if available, otherwise from container
+    if [ -f "$WORKSPACE_DIR/arx-node-logs/arx.log" ]; then
+        tail -f "$WORKSPACE_DIR/arx-node-logs/arx.log"
+    else
+        docker logs -f "$DOCKER_CONTAINER_NAME"
+    fi
 }
 
 # Select RPC endpoint
@@ -665,6 +880,7 @@ generate_node_offset() {
     # Generate a random 10-digit number
     NODE_OFFSET=$(shuf -i 1000000000-9999999999 -n 1)
     print_info "Generated node offset: $NODE_OFFSET"
+    save_node_offset
 }
 
 # Initialize node accounts
@@ -882,7 +1098,47 @@ print_summary() {
 # Main Execution
 ################################################################################
 
-main() {
+# Handle command line arguments
+handle_arguments() {
+    case "${1:-install}" in
+        "install")
+            main_install
+            ;;
+        "start")
+            start_node
+            ;;
+        "stop")
+            stop_node
+            ;;
+        "restart")
+            restart_node
+            ;;
+        "status")
+            show_node_status
+            ;;
+        "info")
+            show_node_info
+            ;;
+        "active")
+            check_node_active
+            ;;
+        "logs")
+            show_node_logs
+            ;;
+        "help"|"-h"|"--help")
+            show_help
+            ;;
+        *)
+            print_error "Unknown command: $1"
+            echo
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+# Main installation function
+main_install() {
     print_header
     
     # Detect OS
@@ -979,6 +1235,11 @@ main() {
     
     # Print summary
     print_summary
+}
+
+# Main function
+main() {
+    handle_arguments "$@"
 }
 
 # Run main function
