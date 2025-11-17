@@ -38,6 +38,7 @@ RPC_URL=""
 PROGRESS_FILE="$WORKSPACE_DIR/.setup_progress"
 RPC_CONFIG_FILE="$WORKSPACE_DIR/.rpc_config"
 OFFSET_FILE="$WORKSPACE_DIR/.node_offset"
+CLUSTER_OFFSET_FILE="$WORKSPACE_DIR/.cluster_offset"
 
 ################################################################################
 # Utility Functions
@@ -183,6 +184,35 @@ check_system_requirements() {
     DISK_SPACE=$(df -h "$HOME" | awk 'NR==2 {print $4}' | sed 's/G//')
     print_progress "Available disk space: ${DISK_SPACE}GB"
     
+    # Check GLIBC version on Linux
+    if [[ "$OS" == "linux" ]]; then
+        GLIBC_VERSION=$(ldd --version | head -n1 | awk '{print $NF}')
+        print_progress "GLIBC version: $GLIBC_VERSION"
+        
+        # Check if GLIBC version is sufficient (requires 2.38+)
+        if ! echo "$GLIBC_VERSION" | awk -F. '{if ($1 > 2 || ($1 == 2 && $2 >= 38)) exit 0; else exit 1}'; then
+            print_warning "⚠️  GLIBC version $GLIBC_VERSION detected"
+            print_warning "⚠️  Anchor CLI requires GLIBC 2.38 or higher"
+            print_warning "⚠️  This may cause installation issues"
+            echo
+            print_info "🔧 To fix this, you can:"
+            print_info "  1. Update your system: sudo apt update && sudo apt upgrade"
+            print_info "  2. Use a newer Linux distribution (Ubuntu 24.04+, Debian 12+)"
+            print_info "  3. Install Anchor manually with a compatible version"
+            echo
+            print_info "🤔 Do you want to continue anyway? (y/N)"
+            read -r response
+            if [[ ! "$response" =~ ^[Yy]$ ]]; then
+                print_info "❌ Installation cancelled. Please update your system and try again."
+                exit 0
+            else
+                print_warning "⚠️  Continuing with potential GLIBC compatibility issues."
+            fi
+        else
+            print_success "✅ GLIBC version is compatible ($GLIBC_VERSION >= 2.38)"
+        fi
+    fi
+    
     # RAM check
     if [ "$TOTAL_RAM" -lt 32 ]; then
         print_warning "⚠️  Your system has less than 32GB RAM (${TOTAL_RAM}GB detected)"
@@ -283,6 +313,31 @@ load_node_offset() {
 clear_node_offset() {
     rm -f "$OFFSET_FILE"
     print_info "Node offset cleared"
+}
+
+# Save cluster offset
+save_cluster_offset() {
+    # Ensure workspace directory exists
+    mkdir -p "$WORKSPACE_DIR"
+    echo "$CLUSTER_OFFSET" > "$CLUSTER_OFFSET_FILE"
+    print_info "Cluster offset saved: $CLUSTER_OFFSET"
+}
+
+# Load cluster offset
+load_cluster_offset() {
+    if [ -f "$CLUSTER_OFFSET_FILE" ]; then
+        CLUSTER_OFFSET=$(cat "$CLUSTER_OFFSET_FILE")
+        print_info "Loaded cluster offset: $CLUSTER_OFFSET"
+    else
+        print_warning "No saved cluster offset found"
+        return 1
+    fi
+}
+
+# Clear cluster offset
+clear_cluster_offset() {
+    rm -f "$CLUSTER_OFFSET_FILE"
+    print_info "Cluster offset cleared"
 }
 
 # Show help
@@ -413,11 +468,15 @@ show_node_info() {
     # Load configurations
     load_rpc_config
     load_node_offset
+    load_cluster_offset
     
     print_info "Node Details:"
     print_info "  📁 Workspace: $WORKSPACE_DIR"
     print_info "  🔑 Node Pubkey: $(solana address --keypair-path "$NODE_KEYPAIR")"
     print_info "  🔢 Node Offset: $NODE_OFFSET"
+    if [ -n "$CLUSTER_OFFSET" ]; then
+        print_info "  🔢 Cluster Offset: $CLUSTER_OFFSET"
+    fi
     print_info "  🌐 Public IP: $PUBLIC_IP"
     print_info "  🔗 RPC Endpoint: $RPC_URL"
     print_info "  📊 Container: $DOCKER_CONTAINER_NAME"
@@ -537,11 +596,19 @@ resume_from_progress() {
     # Load RPC configuration
     load_rpc_config
     
+    # Load offsets
+    load_node_offset
+    load_cluster_offset
+    
     case "$last_step" in
         "funding_failed")
             print_info "Resuming from funding step..."
             fund_accounts
             initialize_node_accounts
+            initialize_cluster
+            propose_join_cluster
+            join_cluster
+            verify_node_in_cluster
             create_node_config
             deploy_node
             verify_node
@@ -550,6 +617,40 @@ resume_from_progress() {
         "init_failed")
             print_info "Resuming from initialization step..."
             initialize_node_accounts
+            initialize_cluster
+            propose_join_cluster
+            join_cluster
+            verify_node_in_cluster
+            create_node_config
+            deploy_node
+            verify_node
+            clear_progress
+            ;;
+        "cluster_init_failed")
+            print_info "Resuming from cluster initialization step..."
+            initialize_cluster
+            propose_join_cluster
+            join_cluster
+            verify_node_in_cluster
+            create_node_config
+            deploy_node
+            verify_node
+            clear_progress
+            ;;
+        "propose_failed")
+            print_info "Resuming from proposal step..."
+            propose_join_cluster
+            join_cluster
+            verify_node_in_cluster
+            create_node_config
+            deploy_node
+            verify_node
+            clear_progress
+            ;;
+        "join_failed")
+            print_info "Resuming from join step..."
+            join_cluster
+            verify_node_in_cluster
             create_node_config
             deploy_node
             verify_node
@@ -611,10 +712,13 @@ install_solana() {
         SOLANA_VERSION=$(solana --version | awk '{print $2}')
         print_success "Solana CLI is already installed: v$SOLANA_VERSION"
         
-        # Ensure it's configured for devnet
-        print_info "Configuring Solana CLI for devnet..."
-        solana config set --url devnet >/dev/null 2>&1
-        print_success "Solana CLI configured for devnet"
+        # Configure Solana CLI with RPC URL (use default if not set)
+        if [ -z "$RPC_URL" ]; then
+            RPC_URL="$DEFAULT_RPC_URL"
+        fi
+        print_info "Configuring Solana CLI with RPC URL..."
+        solana config set --url "$RPC_URL"
+        print_success "Solana CLI configured with RPC: $RPC_URL"
         return 0
     fi
     
@@ -627,10 +731,13 @@ install_solana() {
     if command_exists solana; then
         print_success "Solana CLI installed successfully: $(solana --version)"
         
-        # Configure for devnet
-        print_info "Configuring for devnet..."
-        solana config set --url devnet
-        print_success "Configured for devnet"
+        # Configure Solana CLI with RPC URL (use default if not set)
+        if [ -z "$RPC_URL" ]; then
+            RPC_URL="$DEFAULT_RPC_URL"
+        fi
+        print_info "Configuring Solana CLI with RPC URL..."
+        solana config set --url "$RPC_URL"
+        print_success "Configured with RPC: $RPC_URL"
     else
         print_error "Solana CLI installation failed"
         exit 1
@@ -719,7 +826,33 @@ install_arcium() {
     fi
     
     print_info "Installing Arcium CLI via arcium-install..."
-    curl --proto '=https' --tlsv1.2 -sSfL https://arcium-install.arcium.workers.dev/ | bash
+    
+    # Check for GLIBC compatibility issues
+    if [[ "$OS" == "linux" ]]; then
+        GLIBC_VERSION=$(ldd --version | head -n1 | awk '{print $NF}')
+        if ! echo "$GLIBC_VERSION" | awk -F. '{if ($1 > 2 || ($1 == 2 && $2 >= 38)) exit 0; else exit 1}'; then
+            print_warning "⚠️  GLIBC compatibility issue detected"
+            print_info "🔧 Attempting alternative installation method..."
+            
+            # Try to install from source or use alternative method
+            print_info "Installing Rust toolchain first..."
+            if ! command_exists cargo; then
+                curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+                source "$HOME/.cargo/env"
+            fi
+            
+            print_info "Building Arcium CLI from source..."
+            if cargo install arcium-cli; then
+                print_success "Arcium CLI installed from source"
+                return 0
+            else
+                print_warning "Source installation failed, trying standard method..."
+            fi
+        fi
+    fi
+    
+    # Standard installation
+    curl --proto '=https' --tlsv1.2 -sSfL https://install.arcium.com/ | bash
     
     # Source the shell configuration to get arcium in PATH
     if [ -f "$HOME/.bashrc" ]; then
@@ -737,6 +870,8 @@ install_arcium() {
         print_success "Arcium CLI installed successfully: $ARCIUM_VERSION"
     else
         print_error "Arcium CLI installation failed"
+        print_warning "This may be due to GLIBC compatibility issues"
+        print_info "Try updating your system or using a newer Linux distribution"
         exit 1
     fi
 }
@@ -928,6 +1063,152 @@ initialize_node_accounts() {
     print_success "Node accounts initialized on-chain"
 }
 
+# Generate cluster offset
+generate_cluster_offset() {
+    # Generate a random 10-digit number
+    CLUSTER_OFFSET=$(shuf -i 1000000000-9999999999 -n 1)
+    print_info "Generated cluster offset: $CLUSTER_OFFSET"
+    save_cluster_offset
+}
+
+# Initialize cluster
+initialize_cluster() {
+    print_section "Initializing Cluster"
+    
+    if [ -z "$CLUSTER_OFFSET" ]; then
+        generate_cluster_offset
+    fi
+    
+    print_info "Cluster offset: $CLUSTER_OFFSET"
+    print_info "Initializing cluster (this may take a moment)..."
+    
+    if ! arcium init-cluster \
+        --keypair-path "$NODE_KEYPAIR" \
+        --offset "$CLUSTER_OFFSET" \
+        --max-nodes 10 \
+        --rpc-url "$RPC_URL"; then
+        print_error "Cluster initialization failed"
+        print_warning "This may be due to:"
+        print_warning "  - Cluster offset already in use (try running script again)"
+        print_warning "  - Insufficient SOL for transaction fees"
+        print_warning "  - RPC endpoint issues"
+        print_warning "  - Network connectivity problems"
+        echo
+        print_info "Manual recovery commands:"
+        echo -e "  ${YELLOW}cd $WORKSPACE_DIR${NC}"
+        echo -e "  ${YELLOW}arcium init-cluster --keypair-path $NODE_KEYPAIR --offset $CLUSTER_OFFSET --max-nodes 10 --rpc-url $RPC_URL${NC}"
+        echo
+        print_warning "Saving progress for manual continuation..."
+        save_progress "cluster_init_failed"
+        exit 1
+    fi
+    
+    print_success "Cluster initialized successfully"
+}
+
+# Propose join cluster
+propose_join_cluster() {
+    print_section "Proposing to Join Cluster"
+    
+    if [ -z "$NODE_OFFSET" ]; then
+        print_error "Node offset is not set"
+        exit 1
+    fi
+    
+    if [ -z "$CLUSTER_OFFSET" ]; then
+        print_error "Cluster offset is not set"
+        exit 1
+    fi
+    
+    print_info "Node offset: $NODE_OFFSET"
+    print_info "Cluster offset: $CLUSTER_OFFSET"
+    print_info "Creating proposal to join cluster (this may take a moment)..."
+    
+    if ! arcium propose-join-cluster \
+        --keypair-path "$NODE_KEYPAIR" \
+        --node-offset "$NODE_OFFSET" \
+        --cluster-offset "$CLUSTER_OFFSET" \
+        --rpc-url "$RPC_URL"; then
+        print_error "Failed to create proposal to join cluster"
+        print_warning "This may be due to:"
+        print_warning "  - Node not initialized"
+        print_warning "  - Cluster not initialized"
+        print_warning "  - Insufficient SOL for transaction fees"
+        print_warning "  - RPC endpoint issues"
+        echo
+        print_info "Manual recovery commands:"
+        echo -e "  ${YELLOW}cd $WORKSPACE_DIR${NC}"
+        echo -e "  ${YELLOW}arcium propose-join-cluster --keypair-path $NODE_KEYPAIR --node-offset $NODE_OFFSET --cluster-offset $CLUSTER_OFFSET --rpc-url $RPC_URL${NC}"
+        echo
+        print_warning "Saving progress for manual continuation..."
+        save_progress "propose_failed"
+        exit 1
+    fi
+    
+    print_success "Proposal to join cluster created successfully"
+}
+
+# Join cluster
+join_cluster() {
+    print_section "Joining Cluster"
+    
+    if [ -z "$NODE_OFFSET" ]; then
+        print_error "Node offset is not set"
+        exit 1
+    fi
+    
+    if [ -z "$CLUSTER_OFFSET" ]; then
+        print_error "Cluster offset is not set"
+        exit 1
+    fi
+    
+    print_info "Node offset: $NODE_OFFSET"
+    print_info "Cluster offset: $CLUSTER_OFFSET"
+    print_info "Joining cluster (this may take a moment)..."
+    
+    if ! arcium join-cluster \
+        --keypair-path "$NODE_KEYPAIR" \
+        --node-offset "$NODE_OFFSET" \
+        --cluster-offset "$CLUSTER_OFFSET" \
+        --rpc-url "$RPC_URL"; then
+        print_error "Failed to join cluster"
+        print_warning "This may be due to:"
+        print_warning "  - Proposal not created"
+        print_warning "  - Insufficient SOL for transaction fees"
+        print_warning "  - RPC endpoint issues"
+        echo
+        print_info "Manual recovery commands:"
+        echo -e "  ${YELLOW}cd $WORKSPACE_DIR${NC}"
+        echo -e "  ${YELLOW}arcium join-cluster --keypair-path $NODE_KEYPAIR --node-offset $NODE_OFFSET --cluster-offset $CLUSTER_OFFSET --rpc-url $RPC_URL${NC}"
+        echo
+        print_warning "Saving progress for manual continuation..."
+        save_progress "join_failed"
+        exit 1
+    fi
+    
+    print_success "Successfully joined cluster"
+}
+
+# Verify node in cluster
+verify_node_in_cluster() {
+    print_section "Verifying Node in Cluster"
+    
+    if [ -z "$NODE_OFFSET" ]; then
+        print_error "Node offset is not set"
+        exit 1
+    fi
+    
+    print_info "Checking node information..."
+    print_info "Node offset: $NODE_OFFSET"
+    
+    if arcium arx-info "$NODE_OFFSET" --rpc-url "$RPC_URL"; then
+        print_success "✅ Node is verified in cluster"
+    else
+        print_warning "⚠️  Could not verify node in cluster"
+        print_info "This may be normal if the node hasn't fully synced yet"
+    fi
+}
+
 # Create node configuration
 create_node_config() {
     print_section "Creating Node Configuration"
@@ -1086,10 +1367,18 @@ print_summary() {
     echo -e "  ${YELLOW}🔄 Restart node:${NC}      docker restart $DOCKER_CONTAINER_NAME"
     echo -e "  ${YELLOW}📊 Node status:${NC}      docker ps | grep $DOCKER_CONTAINER_NAME"
     
+    # Load cluster offset if not already loaded
+    if [ -z "$CLUSTER_OFFSET" ]; then
+        load_cluster_offset 2>/dev/null || true
+    fi
+    
     echo -e "\n${CYAN}📋 Node Details:${NC}"
     echo -e "  ${YELLOW}📁 Workspace:${NC}        $WORKSPACE_DIR"
     echo -e "  ${YELLOW}🔑 Node Pubkey:${NC}      $(solana address --keypair-path "$NODE_KEYPAIR")"
     echo -e "  ${YELLOW}🔢 Node Offset:${NC}      $NODE_OFFSET"
+    if [ -n "$CLUSTER_OFFSET" ]; then
+        echo -e "  ${YELLOW}🔢 Cluster Offset:${NC}  $CLUSTER_OFFSET"
+    fi
     echo -e "  ${YELLOW}🌐 Public IP:${NC}        $PUBLIC_IP"
     echo -e "  ${YELLOW}🔗 RPC Endpoint:${NC}     $RPC_URL"
     
@@ -1176,6 +1465,10 @@ main_install() {
     # Select RPC endpoint
     select_rpc
     
+    # Load saved offsets if they exist
+    load_node_offset 2>/dev/null || true
+    load_cluster_offset 2>/dev/null || true
+    
     # Install prerequisites
     echo -e "\n${CYAN}📦 Installing Prerequisites...${NC}\n"
     show_progress 1 4 "Installing Rust"
@@ -1207,24 +1500,41 @@ main_install() {
     
     # Setup workspace
     echo -e "\n${CYAN}🏗️  Setting Up Node Environment...${NC}\n"
-    show_progress 1 6 "Setting up workspace"
+    show_progress 1 9 "Setting up workspace"
     setup_workspace
     
-    show_progress 2 6 "Detecting public IP"
+    show_progress 2 9 "Detecting public IP"
     get_public_ip
     
-    show_progress 3 6 "Generating keypairs"
+    show_progress 3 9 "Generating keypairs"
     generate_keypairs
     
-    show_progress 4 6 "Funding accounts"
+    show_progress 4 9 "Funding accounts"
     fund_accounts
     save_progress "funding_completed"
     
-    show_progress 5 6 "Initializing node accounts"
+    show_progress 5 9 "Initializing node accounts"
     initialize_node_accounts
     save_progress "init_completed"
     
-    show_progress 6 6 "Creating configuration"
+    show_progress 6 9 "Initializing cluster"
+    initialize_cluster
+    save_progress "cluster_init_completed"
+    
+    show_progress 7 9 "Proposing to join cluster"
+    propose_join_cluster
+    save_progress "propose_completed"
+    
+    show_progress 8 9 "Joining cluster"
+    join_cluster
+    save_progress "join_completed"
+    
+    show_progress 9 9 "Verifying node in cluster"
+    verify_node_in_cluster
+    save_progress "cluster_verify_completed"
+    
+    # Create configuration
+    echo -e "\n${CYAN}⚙️  Creating Node Configuration...${NC}\n"
     create_node_config
     save_progress "config_completed"
     
