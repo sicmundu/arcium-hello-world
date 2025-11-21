@@ -942,8 +942,8 @@ generate_keypairs() {
     fi
     
     # Show public keys
-    NODE_PUBKEY=$(solana address --keypair-path "$NODE_KEYPAIR")
-    CALLBACK_PUBKEY=$(solana address --keypair-path "$CALLBACK_KEYPAIR")
+    NODE_PUBKEY=$(solana address -k "$NODE_KEYPAIR")
+    CALLBACK_PUBKEY=$(solana address -k "$CALLBACK_KEYPAIR")
     
     print_info "Node public key: $NODE_PUBKEY"
     print_info "Callback public key: $CALLBACK_PUBKEY"
@@ -953,8 +953,8 @@ generate_keypairs() {
 fund_accounts() {
     print_section "Funding Accounts with Devnet SOL"
     
-    NODE_PUBKEY=$(solana address --keypair-path "$NODE_KEYPAIR")
-    CALLBACK_PUBKEY=$(solana address --keypair-path "$CALLBACK_KEYPAIR")
+    NODE_PUBKEY=$(solana address -k "$NODE_KEYPAIR")
+    CALLBACK_PUBKEY=$(solana address -k "$CALLBACK_KEYPAIR")
     
     print_info "Checking node account balance..."
     NODE_BALANCE=$(solana balance "$NODE_PUBKEY" -u devnet 2>/dev/null | awk '{print $1}')
