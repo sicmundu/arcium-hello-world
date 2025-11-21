@@ -973,10 +973,23 @@ fund_accounts() {
             echo -e "  ${YELLOW}Callback account:${NC} solana airdrop 2 $CALLBACK_PUBKEY -u devnet"
             echo -e "  ${YELLOW}Or use faucet:${NC}    https://faucet.solana.com"
             echo
+            
+            # Create config before showing manual commands
+            if [ -z "$NODE_OFFSET" ]; then
+                generate_node_offset
+            fi
+            if [ -z "$CLUSTER_OFFSET" ]; then
+                generate_cluster_offset
+            fi
+            create_node_config
+            
             print_info "After funding, run these commands to continue:"
             echo -e "  ${YELLOW}cd $WORKSPACE_DIR${NC}"
             echo -e "  ${YELLOW}arcium init-arx-accs --keypair-path $NODE_KEYPAIR --callback-keypair-path $CALLBACK_KEYPAIR --peer-keypair-path $IDENTITY_KEYPAIR --node-offset $NODE_OFFSET --ip-address $PUBLIC_IP --rpc-url $RPC_URL${NC}"
-            echo -e "  ${YELLOW}arcium deploy-arx-node --config-path $NODE_CONFIG${NC}"
+            echo -e "  ${YELLOW}arcium init-cluster --keypair-path $NODE_KEYPAIR --offset $CLUSTER_OFFSET --max-nodes 10 --rpc-url $RPC_URL${NC}"
+            echo -e "  ${YELLOW}arcium propose-join-cluster --keypair-path $NODE_KEYPAIR --node-offset $NODE_OFFSET --cluster-offset $CLUSTER_OFFSET --rpc-url $RPC_URL${NC}"
+            echo -e "  ${YELLOW}arcium join-cluster --keypair-path $NODE_KEYPAIR --node-offset $NODE_OFFSET --cluster-offset $CLUSTER_OFFSET --rpc-url $RPC_URL${NC}"
+            echo -e "  ${YELLOW}docker run -d --name arx-node -e NODE_IDENTITY_FILE=/usr/arx-node/node-keys/node_identity.pem -e NODE_KEYPAIR_FILE=/usr/arx-node/node-keys/node_keypair.json -e OPERATOR_KEYPAIR_FILE=/usr/arx-node/node-keys/operator_keypair.json -e CALLBACK_AUTHORITY_KEYPAIR_FILE=/usr/arx-node/node-keys/callback_authority_keypair.json -e NODE_CONFIG_PATH=/usr/arx-node/arx/node_config.toml -v $NODE_CONFIG:/usr/arx-node/arx/node_config.toml -v $NODE_KEYPAIR:/usr/arx-node/node-keys/node_keypair.json:ro -v $NODE_KEYPAIR:/usr/arx-node/node-keys/operator_keypair.json:ro -v $CALLBACK_KEYPAIR:/usr/arx-node/node-keys/callback_authority_keypair.json:ro -v $IDENTITY_KEYPAIR:/usr/arx-node/node-keys/node_identity.pem:ro -v $WORKSPACE_DIR/arx-node-logs:/usr/arx-node/logs -p 8080:8080 arcium/arx-node:latest${NC}"
             echo
             print_warning "Saving progress for manual continuation..."
             save_progress "funding_failed"
@@ -1003,10 +1016,25 @@ fund_accounts() {
             echo -e "  ${YELLOW}Callback account:${NC} solana airdrop 2 $CALLBACK_PUBKEY -u devnet"
             echo -e "  ${YELLOW}Or use faucet:${NC}    https://faucet.solana.com"
             echo
+            
+            # Create config before showing manual commands (if not already created)
+            if [ ! -f "$NODE_CONFIG" ]; then
+                if [ -z "$NODE_OFFSET" ]; then
+                    generate_node_offset
+                fi
+                if [ -z "$CLUSTER_OFFSET" ]; then
+                    generate_cluster_offset
+                fi
+                create_node_config
+            fi
+            
             print_info "After funding, run these commands to continue:"
             echo -e "  ${YELLOW}cd $WORKSPACE_DIR${NC}"
             echo -e "  ${YELLOW}arcium init-arx-accs --keypair-path $NODE_KEYPAIR --callback-keypair-path $CALLBACK_KEYPAIR --peer-keypair-path $IDENTITY_KEYPAIR --node-offset $NODE_OFFSET --ip-address $PUBLIC_IP --rpc-url $RPC_URL${NC}"
-            echo -e "  ${YELLOW}arcium deploy-arx-node --config-path $NODE_CONFIG${NC}"
+            echo -e "  ${YELLOW}arcium init-cluster --keypair-path $NODE_KEYPAIR --offset $CLUSTER_OFFSET --max-nodes 10 --rpc-url $RPC_URL${NC}"
+            echo -e "  ${YELLOW}arcium propose-join-cluster --keypair-path $NODE_KEYPAIR --node-offset $NODE_OFFSET --cluster-offset $CLUSTER_OFFSET --rpc-url $RPC_URL${NC}"
+            echo -e "  ${YELLOW}arcium join-cluster --keypair-path $NODE_KEYPAIR --node-offset $NODE_OFFSET --cluster-offset $CLUSTER_OFFSET --rpc-url $RPC_URL${NC}"
+            echo -e "  ${YELLOW}docker run -d --name arx-node -e NODE_IDENTITY_FILE=/usr/arx-node/node-keys/node_identity.pem -e NODE_KEYPAIR_FILE=/usr/arx-node/node-keys/node_keypair.json -e OPERATOR_KEYPAIR_FILE=/usr/arx-node/node-keys/operator_keypair.json -e CALLBACK_AUTHORITY_KEYPAIR_FILE=/usr/arx-node/node-keys/callback_authority_keypair.json -e NODE_CONFIG_PATH=/usr/arx-node/arx/node_config.toml -v $NODE_CONFIG:/usr/arx-node/arx/node_config.toml -v $NODE_KEYPAIR:/usr/arx-node/node-keys/node_keypair.json:ro -v $NODE_KEYPAIR:/usr/arx-node/node-keys/operator_keypair.json:ro -v $CALLBACK_KEYPAIR:/usr/arx-node/node-keys/callback_authority_keypair.json:ro -v $IDENTITY_KEYPAIR:/usr/arx-node/node-keys/node_identity.pem:ro -v $WORKSPACE_DIR/arx-node-logs:/usr/arx-node/logs -p 8080:8080 arcium/arx-node:latest${NC}"
             echo
             print_warning "Saving progress for manual continuation..."
             save_progress "funding_failed"
@@ -1028,10 +1056,6 @@ generate_node_offset() {
 # Initialize node accounts
 initialize_node_accounts() {
     print_section "Initializing Node Accounts On-Chain"
-    
-    if [ -z "$NODE_OFFSET" ]; then
-        generate_node_offset
-    fi
     
     print_info "Node offset: $NODE_OFFSET"
     print_info "IP address: $PUBLIC_IP"
@@ -1074,10 +1098,6 @@ generate_cluster_offset() {
 # Initialize cluster
 initialize_cluster() {
     print_section "Initializing Cluster"
-    
-    if [ -z "$CLUSTER_OFFSET" ]; then
-        generate_cluster_offset
-    fi
     
     print_info "Cluster offset: $CLUSTER_OFFSET"
     print_info "Initializing cluster (this may take a moment)..."
@@ -1166,7 +1186,7 @@ join_cluster() {
     print_info "Cluster offset: $CLUSTER_OFFSET"
     print_info "Joining cluster (this may take a moment)..."
     
-    if ! arcium join-cluster \
+    if ! arcium join-cluster true\
         --keypair-path "$NODE_KEYPAIR" \
         --node-offset "$NODE_OFFSET" \
         --cluster-offset "$CLUSTER_OFFSET" \
@@ -1508,6 +1528,14 @@ main_install() {
     
     show_progress 3 9 "Generating keypairs"
     generate_keypairs
+    
+    # Generate offsets early so they're available for manual commands if funding fails
+    if [ -z "$NODE_OFFSET" ]; then
+        generate_node_offset
+    fi
+    if [ -z "$CLUSTER_OFFSET" ]; then
+        generate_cluster_offset
+    fi
     
     show_progress 4 9 "Funding accounts"
     fund_accounts
